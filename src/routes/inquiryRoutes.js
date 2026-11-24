@@ -5,8 +5,10 @@ const inquiryController = require('../controllers/inquiryController');
 const messageController = require('../controllers/messageController');
 const quotationController = require('../controllers/quotationController');
 const { uploadChat, uploadErrorHandler } = require('../middleware/uploadMiddleware');
+const { validationMiddleware } = require('../middleware/validationMiddleware');
+const { z } = require('zod');
 
-router.post('/', authMiddleware, inquiryController.createInquiry);
+router.post('/', authMiddleware, validationMiddleware(z.object({ requirementId: z.coerce.number().int().positive() })), inquiryController.createInquiry);
 router.get('/', authMiddleware, inquiryController.listInquiries);
 router.get('/:id', authMiddleware, inquiryController.getInquiry);
 router.patch('/:id/read', authMiddleware, inquiryController.markRead);

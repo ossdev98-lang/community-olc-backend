@@ -1,5 +1,7 @@
 const db = require('../models');
 const { success, error } = require('../utils/responseHandler');
+const { getIO } = require('../sockets');
+const { notifyNewQuotation } = require('../sockets/chatSocket');
 
 async function sendQuotation(req, res) {
   try {
@@ -52,6 +54,8 @@ async function sendQuotation(req, res) {
     const full = await db.Quotation.findByPk(quotation.id, {
       include: [{ model: db.User, as: 'sender', attributes: ['id', 'name', 'email'] }],
     });
+    const io = getIO();
+    if (io) notifyNewQuotation(io, otherUserId, full, conversation);
     return success(res, 'Quotation sent', { quotation: full }, 201);
   } catch (err) {
     return error(res, err.message || 'Failed to send quotation', 500);

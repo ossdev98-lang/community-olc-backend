@@ -17,7 +17,12 @@ async function listRequirements(req, res) {
       if (expired === 'true') where.status = 'EXPIRED';
       if (closed === 'true') where.status = 'CLOSED';
     }
-    if (category) where.category = category;
+    if (category) {
+      const categoryRecord = await db.Category.findOne({ where: { name: category } });
+      // A missing category should return no rows instead of querying a column
+      // that does not exist on requirements.
+      where.category_id = categoryRecord?.id ?? -1;
+    }
     if (city) where.city = { [Op.iLike]: `%${city}%` };
     if (condition) where.condition = condition;
     if (search) {

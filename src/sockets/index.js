@@ -3,14 +3,26 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/env');
 const db = require('../models');
 
-const onlineUsers = new Map(); // userId -> socketId
+const onlineUsers = new Map(); // userId -> Set<socketId>
+let ioInstance = null;
 
 function initSocket(server) {
-  const io = new Server(server, {
-    cors: { origin: config.frontendUrl || '*', methods: ['GET', 'POST'] },
+  const allowedOrigins = new Set([
+    ...String(config.frontendUrl || '').split(',').map((origin) => origin.trim().replace(/\/+$/, '')).filter(Boolean),
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ]);
+  ioInstance = new Server(server, {
+    cors: {
+      origin(origin, callback) {
+        const isProjectPreview = /^https:\/\/community-olc-frontend-[a-z0-9-]+\.vercel\.app$/i.test(origin || '');
+        callback(null, !origin || allowedOrigins.has(origin.replace(/\/+$/, '')) || isProjectPreview);
+      },
+      methods: ['GET', 'POST'],
+    },
   });
 
-  io.use(async (socket, next) => {
+  ioInstance.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth.token || socket.handshake.query.token;
       if (!token) return next(new Error('Authentication required'));
@@ -23,13 +35,20 @@ function initSocket(server) {
     }
   });
 
-  io.on('connection', (socket) => {
-    onlineUsers.set(socket.userId, socket.id);
+  ioInstance.on('connection', (socket) => {
+    const userKey = String(socket.userId);
+    const userSockets = onlineUsers.get(userKey) || new Set();
+    const wasOffline = userSockets.size === 0;
+    userSockets.add(socket.id);
+    onlineUsers.set(userKey, userSockets);
     socket.join(`user_${socket.userId}`);
-    io.emit('presence', { userId: socket.userId, online: true });
+    if (wasOffline) ioInstance.emit('presence', { userId: socket.userId, online: true });
 
-    socket.on('join_conversation', ({ conversationId }) => {
-      socket.join(`conv_${conversationId}`);
+    socket.on('join_conversation', async ({ conversationId }) => {
+      const conversation = await db.Conversation.findByPk(conversationId);
+      if (conversation && [conversation.owner_user_id, conversation.interested_user_id].some((id) => String(id) === String(socket.userId))) {
+        socket.join(`conv_${conversationId}`);
+      }
     });
 
     socket.on('leave_conversation', ({ conversationId }) => {
@@ -37,28 +56,40 @@ function initSocket(server) {
     });
 
     socket.on('typing', ({ conversationId, userId, userName }) => {
-      socket.to(`conv_${conversationId}`).emit('typing', { conversationId, userId, userName });
+      if (socket.rooms.has(`conv_${conversationId}`)) {
+        socket.to(`conv_${conversationId}`).emit('typing', { conversationId, userId: socket.userId, userName });
+      }
     });
 
     socket.on('stop_typing', ({ conversationId, userId }) => {
-      socket.to(`conv_${conversationId}`).emit('stop_typing', { conversationId, userId });
+      if (socket.rooms.has(`conv_${conversationId}`)) {
+        socket.to(`conv_${conversationId}`).emit('stop_typing', { conversationId, userId: socket.userId });
+      }
     });
 
     socket.on('disconnect', () => {
-      onlineUsers.delete(socket.userId);
-      io.emit('presence', { userId: socket.userId, online: false });
+      const activeSockets = onlineUsers.get(userKey);
+      activeSockets?.delete(socket.id);
+      if (activeSockets?.size === 0) {
+        onlineUsers.delete(userKey);
+        ioInstance.emit('presence', { userId: socket.userId, online: false });
+      }
     });
   });
 
-  return io;
+  return ioInstance;
+}
+
+function getIO() {
+  return ioInstance;
 }
 
 function isOnline(userId) {
-  return onlineUsers.has(userId);
+  return (onlineUsers.get(String(userId))?.size || 0) > 0;
 }
 
 function getSocketId(userId) {
-  return onlineUsers.get(userId);
+  return onlineUsers.get(String(userId))?.values().next().value;
 }
 
-module.exports = { initSocket, io: null, isOnline, getSocketId, onlineUsers };
+module.exports = { initSocket, getIO, isOnline, getSocketId, onlineUsers };

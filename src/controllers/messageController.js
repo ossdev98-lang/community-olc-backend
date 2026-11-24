@@ -1,5 +1,7 @@
 const db = require('../models');
 const { success, error } = require('../utils/responseHandler');
+const { getIO } = require('../sockets');
+const { notifyNewMessage } = require('../sockets/chatSocket');
 
 async function sendMessage(req, res) {
   try {
@@ -40,6 +42,9 @@ async function sendMessage(req, res) {
       related_id: conversationId,
       related_type: 'conversation',
     });
+
+    const io = getIO();
+    if (io) notifyNewMessage(io, conversation, fullMessage, user);
 
     return success(res, 'Message sent', { message: fullMessage }, 201);
   } catch (err) {

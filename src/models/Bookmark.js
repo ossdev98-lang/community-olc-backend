@@ -7,6 +7,7 @@ module.exports = (sequelize) => {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     user_id: { type: DataTypes.INTEGER, allowNull: false },
     requirement_id: { type: DataTypes.INTEGER, allowNull: false },
+    created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   }, {
     tableName: 'bookmarks',
     underscored: true,
