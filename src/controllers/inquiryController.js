@@ -2,7 +2,7 @@ const db = require('../models');
 const { success, error } = require('../utils/responseHandler');
 const { isExpired } = require('../services/expiryService');
 const { getIO } = require('../sockets');
-const { notifyNewInquiry } = require('../sockets/chatSocket');
+const { notifyNewInquiry, notifyContactShared } = require('../sockets/chatSocket');
 
 async function attachParticipantShops(conversations) {
   const items = conversations.map((conversation) => conversation.toJSON());
@@ -119,7 +119,7 @@ async function getInquiry(req, res) {
         { model: db.User, as: 'interestedUser', attributes: ['id', 'name', 'email'] },
         { model: db.Message, as: 'messages', order: [['created_at', 'ASC']] },
         { model: db.Quotation, as: 'quotations', order: [['created_at', 'ASC']] },
-        { model: db.ContactShare, as: 'contactShares' },
+        { model: db.ContactShare, as: 'contactShares', include: [{ model: db.User, as: 'sharedBy', attributes: ['id', 'name'] }] },
       ],
     });
     if (!conversation) return error(res, 'Conversation not found', 404);
@@ -163,6 +163,51 @@ async function closeInquiry(req, res) {
   }
 }
 
+async function shareContact(req, res) {
+  try {
+    const conversation = await db.Conversation.findByPk(req.params.id);
+    if (!conversation) return error(res, 'Conversation not found', 404);
+    if (conversation.owner_user_id !== req.user.id && conversation.interested_user_id !== req.user.id) {
+      return error(res, 'Not authorized', 403);
+    }
+
+    const existing = await db.ContactShare.findOne({
+      where: { conversation_id: conversation.id, shared_by_user_id: req.user.id },
+      include: [{ model: db.User, as: 'sharedBy', attributes: ['id', 'name'] }],
+    });
+    if (existing) return success(res, 'Your contact is already shared', { contactShare: existing });
+    if (!req.user.mobile) return error(res, 'Add a mobile number to your account before sharing your contact', 400);
+
+    const otherUserId = conversation.owner_user_id === req.user.id
+      ? conversation.interested_user_id
+      : conversation.owner_user_id;
+    const contactShare = await db.sequelize.transaction(async (transaction) => {
+      const share = await db.ContactShare.create({
+        conversation_id: conversation.id,
+        shared_by_user_id: req.user.id,
+        contact_name: req.user.name,
+        contact_mobile: req.user.mobile,
+      }, { transaction });
+      await db.Notification.create({
+        user_id: otherUserId,
+        type: 'contact_shared',
+        title: 'Contact Details Shared',
+        message: `${req.user.name} shared their contact details with you`,
+        related_id: conversation.id,
+        related_type: 'conversation',
+      }, { transaction });
+      return share;
+    });
+
+    const shareWithSender = { ...contactShare.toJSON(), sharedBy: { id: req.user.id, name: req.user.name } };
+    const io = getIO();
+    if (io) notifyContactShared(io, conversation, { id: req.user.id, name: req.user.name }, shareWithSender);
+    return success(res, 'Contact details shared', { contactShare: shareWithSender }, 201);
+  } catch (err) {
+    return error(res, err.message || 'Failed to share contact details', 500);
+  }
+}
+
 module.exports = {
-  createInquiry, listInquiries, getInquiry, markRead, closeInquiry,
+  createInquiry, listInquiries, getInquiry, markRead, closeInquiry, shareContact,
 };

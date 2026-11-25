@@ -13,6 +13,7 @@ router.get('/', authMiddleware, inquiryController.listInquiries);
 router.get('/:id', authMiddleware, inquiryController.getInquiry);
 router.patch('/:id/read', authMiddleware, inquiryController.markRead);
 router.patch('/:id/close', authMiddleware, inquiryController.closeInquiry);
+router.post('/:id/contact-share', authMiddleware, inquiryController.shareContact);
 
 router.get('/:id/messages', authMiddleware, messageController.listMessages);
 router.post('/:id/messages', authMiddleware, uploadChat.single('attachment'), uploadErrorHandler, messageController.sendMessage);
