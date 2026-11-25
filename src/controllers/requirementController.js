@@ -10,6 +10,10 @@ async function listRequirements(req, res) {
     } = req.query;
 
     const where = {};
+    if (mine === 'true') {
+      if (!req.user) return error(res, 'Authentication required', 401);
+      where.user_id = req.user.id;
+    }
     if (status) where.status = status;
     else {
       where.status = { [Op.ne]: 'HIDDEN' };

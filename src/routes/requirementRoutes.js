@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware, adminMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, optionalAuthMiddleware } = require('../middleware/authMiddleware');
 const { validationMiddleware } = require('../middleware/validationMiddleware');
 const { uploadRequirementImages, uploadErrorHandler } = require('../middleware/uploadMiddleware');
 const { z } = require('zod');
@@ -36,7 +36,7 @@ const updateSchema = z.object({
 
 const renewSchema = z.object({ duration: z.union([z.string().min(1), z.number().positive()]).optional() });
 
-router.get('/', requirementController.listRequirements);
+router.get('/', optionalAuthMiddleware, requirementController.listRequirements);
 router.get('/:id', requirementController.getRequirement);
 router.post('/', authMiddleware, uploadRequirementImages.array('images', 5), uploadErrorHandler, validationMiddleware(createSchema), requirementController.createRequirement);
 router.put('/:id', authMiddleware, uploadRequirementImages.array('images', 5), uploadErrorHandler, validationMiddleware(updateSchema), requirementController.updateRequirement);
